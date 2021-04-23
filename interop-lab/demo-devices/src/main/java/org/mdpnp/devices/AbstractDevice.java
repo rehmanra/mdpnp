@@ -12,27 +12,9 @@
  ******************************************************************************/
 package org.mdpnp.devices;
 
-import ice.Alert;
-import ice.DeviceIdentity;
-import ice.DeviceIdentityDataWriter;
-import ice.DeviceIdentityTypeSupport;
-import ice.LocalAlarmLimitObjectiveDataWriter;
-import ice.Numeric;
-import ice.NumericDataWriter;
-import ice.NumericTypeSupport;
-import ice.SampleArray;
-import ice.SampleArrayDataWriter;
-import ice.SampleArrayTypeSupport;
-
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileReader;
-import java.io.IOException;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -43,7 +25,6 @@ import java.util.Hashtable;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Consumer;
@@ -54,9 +35,9 @@ import javax.json.JsonArrayBuilder;
 
 import org.mdpnp.rtiapi.data.EventLoop;
 import org.mdpnp.rtiapi.data.EventLoop.ConditionHandler;
-import org.mdpnp.sql.SQLLogging;
 import org.mdpnp.rtiapi.data.QosProfiles;
 import org.mdpnp.rtiapi.data.TopicUtil;
+import org.mdpnp.sql.SQLLogging;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jmx.export.annotation.ManagedAttribute;
@@ -78,6 +59,19 @@ import com.rti.dds.subscription.SampleStateKind;
 import com.rti.dds.subscription.Subscriber;
 import com.rti.dds.subscription.ViewStateKind;
 import com.rti.dds.topic.Topic;
+
+import ice.Alert;
+import ice.DeviceIdentity;
+import ice.DeviceIdentityDataWriter;
+import ice.DeviceIdentityTypeSupport;
+import ice.LocalAlarmLimitObjectiveDataWriter;
+import ice.Numeric;
+import ice.NumericDataWriter;
+import ice.NumericSQI;
+import ice.NumericTypeSupport;
+import ice.SampleArray;
+import ice.SampleArrayDataWriter;
+import ice.SampleArrayTypeSupport;
 
 @ManagedResource(description="MDPNP Device Driver")
 public abstract class AbstractDevice {
@@ -347,7 +341,12 @@ public abstract class AbstractDevice {
     }
 
     protected void numericSample(InstanceHolder<Numeric> holder, float newValue, DeviceClock.Reading time) {
-        holder.data.value = newValue;
+        numericSample(holder, newValue, new NumericSQI(), time);
+    }
+    
+    protected void numericSample(InstanceHolder<Numeric> holder, float newValue, NumericSQI sqi, DeviceClock.Reading time) {
+    	holder.data.value = newValue;
+    	holder.data.sqi = sqi;
         if(time.hasDeviceTime()) {
             Time_t t = DomainClock.toDDSTime(time.getDeviceTime());
             holder.data.device_time.sec = t.sec;
@@ -477,7 +476,10 @@ public abstract class AbstractDevice {
     }
 
     protected InstanceHolder<Numeric> numericSample(InstanceHolder<Numeric> holder, Float newValue, String metric_id, String vendor_metric_id, int instance_id, String unit_id, DeviceClock.Reading time) {
-
+    	return numericSample(holder, newValue, new NumericSQI(), metric_id, vendor_metric_id, instance_id, unit_id, time);
+    }
+    
+    protected InstanceHolder<Numeric> numericSample(InstanceHolder<Numeric> holder, Float newValue, NumericSQI sqi, String metric_id, String vendor_metric_id, int instance_id, String unit_id, DeviceClock.Reading time) {
         if (holder != null && (!holder.data.metric_id.equals(metric_id) || !holder.data.vendor_metric_id.equals(vendor_metric_id) || holder.data.instance_id != instance_id || !holder.data.unit_id.equals(unit_id))) {
             unregisterNumericInstance(holder);
             holder = null;
@@ -486,7 +488,7 @@ public abstract class AbstractDevice {
             if (null == holder) {
                 holder = createNumericInstance(metric_id, vendor_metric_id, instance_id, unit_id);
             }
-            numericSample(holder, newValue, time);
+            numericSample(holder, newValue, sqi, time);
         } else {
             if (null != holder) {
                 unregisterNumericInstance(holder);
@@ -563,36 +565,42 @@ public abstract class AbstractDevice {
 
 
     protected InstanceHolder<SampleArray> sampleArraySample(InstanceHolder<SampleArray> holder,
-                                                            Number[] newValues,
+                                                            Number[] newValues, 
+                                                            NumericSQI sqi,
                                                             String metric_id, String vendor_metric_id, String unit_id, int frequency,
                                                             DeviceClock.Reading timestamp) {
-        return sampleArraySample(holder, newValues, metric_id, vendor_metric_id, 0, unit_id, frequency, timestamp);
+        return sampleArraySample(holder, newValues, sqi, metric_id, vendor_metric_id, 0, unit_id, frequency, timestamp);
     }
 
 
     protected InstanceHolder<ice.SampleArray> sampleArraySample(InstanceHolder<ice.SampleArray> holder,
-                                                                Number[] newValues, int len,
+                                                                Number[] newValues, 
+                                                                NumericSQI sqi,
+                                                                int len,
                                                                 String metric_id, String vendor_metric_id, int instance_id, String unit_id, int frequency,
                                                                 DeviceClock.Reading timestamp) {
-        return sampleArraySample(holder, new ArrayContainer<>(newValues, len), metric_id, vendor_metric_id, instance_id, unit_id, frequency, timestamp);
+        return sampleArraySample(holder, new ArrayContainer<>(newValues, len), sqi, metric_id, vendor_metric_id, instance_id, unit_id, frequency, timestamp);
     }
 
     protected InstanceHolder<ice.SampleArray> sampleArraySample(InstanceHolder<ice.SampleArray> holder,
                                                                 Number[] newValues,
+                                                                NumericSQI sqi,
                                                                 String metric_id, String vendor_metric_id, int instance_id, String unit_id, int frequency,
                                                                 DeviceClock.Reading timestamp) {
-        return sampleArraySample(holder, new ArrayContainer<>(newValues), metric_id, vendor_metric_id, instance_id, unit_id, frequency, timestamp);
+        return sampleArraySample(holder, new ArrayContainer<>(newValues), sqi, metric_id, vendor_metric_id, instance_id, unit_id, frequency, timestamp);
     }
 
     protected InstanceHolder<ice.SampleArray> sampleArraySample(InstanceHolder<ice.SampleArray> holder,
                                                                 Collection<Number> newValues,
+                                                                NumericSQI sqi,
                                                                 String metric_id, String vendor_metric_id, int instance_id, String unit_id, int frequency,
                                                                 DeviceClock.Reading timestamp) {
-        return sampleArraySample(holder, new CollectionContainer<>(newValues), metric_id, vendor_metric_id, instance_id, unit_id, frequency, timestamp);
+        return sampleArraySample(holder, new CollectionContainer<>(newValues), sqi, metric_id, vendor_metric_id, instance_id, unit_id, frequency, timestamp);
     }
 
     private InstanceHolder<SampleArray> sampleArraySample(InstanceHolder<SampleArray> holder,
                                                           NullSaveContainer<Number> newValues,
+                                                          NumericSQI sqi,
                                                           String metric_id, String vendor_metric_id, int instance_id, String unit_id, int frequency,
                                                           DeviceClock.Reading timestamp) {
 
@@ -605,7 +613,7 @@ public abstract class AbstractDevice {
             if (null == holder) {
                 holder = createSampleArrayInstance(metric_id, vendor_metric_id, instance_id, unit_id, frequency);
             }
-            sampleArraySample(holder, newValues, timestamp);
+            sampleArraySample(holder, newValues, sqi, timestamp);
         } else {
             if (holder != null) {
                 unregisterSampleArrayInstance(holder);
@@ -615,20 +623,20 @@ public abstract class AbstractDevice {
         return holder;
     }
 
-    protected void sampleArraySample(InstanceHolder<SampleArray> holder, Number[] newValues, DeviceClock.Reading timestamp) {
-        sampleArraySample(holder, new ArrayContainer<>(newValues), timestamp);
+    protected void sampleArraySample(InstanceHolder<SampleArray> holder, Number[] newValues, NumericSQI sqi, DeviceClock.Reading timestamp) {
+        sampleArraySample(holder, new ArrayContainer<>(newValues), sqi, timestamp);
     }
 
-    protected void sampleArraySample(InstanceHolder<SampleArray> holder, Collection<Number>  newValues, DeviceClock.Reading timestamp) {
-        sampleArraySample(holder, new CollectionContainer<>(newValues), timestamp);
+    protected void sampleArraySample(InstanceHolder<SampleArray> holder, Collection<Number>  newValues, NumericSQI sqi, DeviceClock.Reading timestamp) {
+        sampleArraySample(holder, new CollectionContainer<>(newValues), sqi, timestamp);
     }
 
-    private void sampleArraySample(InstanceHolder<ice.SampleArray> holder, NullSaveContainer<Number> newValues, DeviceClock.Reading deviceTimestamp) {
-        fill(holder, newValues);
+    private void sampleArraySample(InstanceHolder<ice.SampleArray> holder, NullSaveContainer<Number> newValues, NumericSQI sqi, DeviceClock.Reading deviceTimestamp) {
+        fill(holder, newValues, sqi);
         publish(holder, deviceTimestamp);
     }
 
-    private void fill(InstanceHolder<SampleArray> holder, NullSaveContainer<Number> newValues) {
+    private void fill(InstanceHolder<SampleArray> holder, NullSaveContainer<Number> newValues, NumericSQI sqi) {
         holder.data.values.userData.clear();
         if(!newValues.isNull()) {
             Iterator<Number> iter = newValues.iterator();
@@ -637,6 +645,7 @@ public abstract class AbstractDevice {
                 holder.data.values.userData.addFloat(n.floatValue());
             }
         }
+        holder.data.sqi = sqi;
     }
 
     private void publish(InstanceHolder<ice.SampleArray> holder, DeviceClock.Reading deviceTimestamp) {

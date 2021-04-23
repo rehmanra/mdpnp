@@ -13,11 +13,16 @@
 package org.mdpnp.devices.simulation.multi;
 
 import ice.GlobalSimulationObjective;
+import ice.NumericSQI;
+
+import java.util.HashMap;
+import java.util.Map;
 
 import org.mdpnp.devices.DeviceClock;
 import org.mdpnp.devices.DeviceClock.Reading;
 import org.mdpnp.devices.simulation.AbstractSimulatedConnectedDevice;
 import org.mdpnp.devices.simulation.GlobalSimulationObjectiveListener;
+import org.mdpnp.devices.simulation.NumberWithJitter;
 import org.mdpnp.devices.simulation.co2.SimulatedCapnometer;
 import org.mdpnp.devices.simulation.ecg.SimulatedElectroCardioGram;
 import org.mdpnp.devices.simulation.ibp.SimulatedInvasiveBloodPressure;
@@ -34,11 +39,66 @@ import com.rti.dds.subscription.Subscriber;
  *
  */
 public class SimMultiparameter extends AbstractSimulatedConnectedDevice {
-    
-    private static final Logger log = LoggerFactory.getLogger(SimMultiparameter.class);
+    private static final float FREQUENCY_HZ = 1.03448f;
+	private static final double DEFAULT_JITTER_CEILING = 100.0;
+	private static final double DEFAULT_JITTER_FLOOR = 90.0;
+	private static final double DEFAULT_JITTER_STEP_AMT = 0.25;
+	private static final double DEFAULT_JITTER_START = 95.0;
+	private static final String ECG_RESP_RATE = "ecgRespRate";
+	private static final String HEART_RATE = "heartRate";
+	private static final String CO22 = "co2";
+	private static final String RESP_RATE = "respRate";
+	private static final String PRESSURE2 = "pressure";
+	private static final String PULSE_OX_HR = "pulseOxHR";
+	private static final String PULSE_OX = "pulseOx";
+	private static final String PLETH= "pleth";
+	private static final String ECG= "ecg";
+	private static final String PRESSURESA= "pressuresa";
+	private static final String CO2SA= "co2sa";
+	
+	private static final Logger log = LoggerFactory.getLogger(SimMultiparameter.class);
 
     protected final InstanceHolder<ice.Numeric> pulse, SpO2, respiratoryRate, etCO2, ecgRespiratoryRate, heartRate, systolic, diastolic;
     protected InstanceHolder<ice.SampleArray> pleth, co2, i, ii, iii, pressure;
+    
+	protected NumericSQI currentPulseOxSQI = new NumericSQI(), currentPulseOxHRSQI = new NumericSQI(),
+			currentPressureSQI = new NumericSQI(), currentRespRateSQI = new NumericSQI(),
+			currentCO2SQI = new NumericSQI(), currentHeartRateSQI = new NumericSQI(),
+			currentECGRespRateSQI = new NumericSQI(), currentPlethSQI = new NumericSQI(),
+			currentECGSQI = new NumericSQI(), currentArrayPressureSQI = new NumericSQI(), 
+			currentArrayCO2SQI = new NumericSQI();
+    
+	private Map<String, NumberWithJitter<Float>> jitterAccuracyMap = new HashMap<String, NumberWithJitter<Float>>() {
+		/**
+		 * 
+		 */
+		private static final long serialVersionUID = -3618879384119365537L;
+
+		{
+			put(PULSE_OX, new NumberWithJitter<Float>(DEFAULT_JITTER_START, DEFAULT_JITTER_STEP_AMT,
+					DEFAULT_JITTER_FLOOR, DEFAULT_JITTER_CEILING));
+			put(PULSE_OX_HR, new NumberWithJitter<Float>(DEFAULT_JITTER_START, DEFAULT_JITTER_STEP_AMT,
+					DEFAULT_JITTER_FLOOR, DEFAULT_JITTER_CEILING));
+			put(PRESSURE2, new NumberWithJitter<Float>(DEFAULT_JITTER_START, DEFAULT_JITTER_STEP_AMT,
+					DEFAULT_JITTER_FLOOR, DEFAULT_JITTER_CEILING));
+			put(RESP_RATE, new NumberWithJitter<Float>(DEFAULT_JITTER_START, DEFAULT_JITTER_STEP_AMT,
+					DEFAULT_JITTER_FLOOR, DEFAULT_JITTER_CEILING));
+			put(CO22, new NumberWithJitter<Float>(DEFAULT_JITTER_START, DEFAULT_JITTER_STEP_AMT, DEFAULT_JITTER_FLOOR,
+					DEFAULT_JITTER_CEILING));
+			put(HEART_RATE, new NumberWithJitter<Float>(DEFAULT_JITTER_START, DEFAULT_JITTER_STEP_AMT,
+					DEFAULT_JITTER_FLOOR, DEFAULT_JITTER_CEILING));
+			put(ECG_RESP_RATE, new NumberWithJitter<Float>(DEFAULT_JITTER_START, DEFAULT_JITTER_STEP_AMT,
+					DEFAULT_JITTER_FLOOR, DEFAULT_JITTER_CEILING));
+			put(PLETH, new NumberWithJitter<Float>(DEFAULT_JITTER_START, DEFAULT_JITTER_STEP_AMT,
+					DEFAULT_JITTER_FLOOR, DEFAULT_JITTER_CEILING));
+			put(ECG, new NumberWithJitter<Float>(DEFAULT_JITTER_START, DEFAULT_JITTER_STEP_AMT,
+					DEFAULT_JITTER_FLOOR, DEFAULT_JITTER_CEILING));
+			put(PRESSURESA, new NumberWithJitter<Float>(DEFAULT_JITTER_START, DEFAULT_JITTER_STEP_AMT,
+					DEFAULT_JITTER_FLOOR, DEFAULT_JITTER_CEILING));
+			put(CO2SA, new NumberWithJitter<Float>(DEFAULT_JITTER_START, DEFAULT_JITTER_STEP_AMT,
+					DEFAULT_JITTER_FLOOR, DEFAULT_JITTER_CEILING));
+		}
+	};
 
     private class SimulatedPulseOximeterExt extends SimulatedPulseOximeter {
 
@@ -48,10 +108,15 @@ public class SimMultiparameter extends AbstractSimulatedConnectedDevice {
 
         @Override
         protected void receivePulseOx(DeviceClock.Reading sampleTime, int heartRate, int SpO2, Number[] plethValues, int frequency) {
-
-            numericSample(pulse, heartRate, sampleTime);
-            numericSample(SimMultiparameter.this.SpO2, SpO2, sampleTime);
-            pleth = sampleArraySample(pleth, plethValues, rosetta.MDC_PULS_OXIM_PLETH.VALUE, "", 0, 
+        	currentPulseOxHRSQI.accuracy = jitterAccuracyMap.get(PULSE_OX_HR).floatValue();
+        	currentPulseOxHRSQI.frequency = FREQUENCY_HZ;
+            numericSample(pulse, heartRate, currentPulseOxHRSQI, sampleTime);
+            currentPulseOxSQI.accuracy = jitterAccuracyMap.get(PULSE_OX).floatValue();
+            currentPulseOxSQI.frequency = FREQUENCY_HZ;
+            numericSample(SimMultiparameter.this.SpO2, SpO2, currentPulseOxSQI, sampleTime);
+            currentPlethSQI.accuracy = jitterAccuracyMap.get(PLETH).floatValue();
+            currentPlethSQI.frequency = frequency;
+            pleth = sampleArraySample(pleth, plethValues, currentPlethSQI, rosetta.MDC_PULS_OXIM_PLETH.VALUE, "", 0, 
                     rosetta.MDC_DIM_DIMLESS.VALUE, frequency, sampleTime);
         }
     }
@@ -63,9 +128,13 @@ public class SimMultiparameter extends AbstractSimulatedConnectedDevice {
         
         @Override
         protected void receivePressure(Reading sampleTime, int systolic, int diastolic, Number[] waveValues, int frequency) {
-            numericSample(SimMultiparameter.this.systolic, systolic, sampleTime);
-            numericSample(SimMultiparameter.this.diastolic, diastolic, sampleTime);
-            pressure = sampleArraySample(pressure, waveValues, rosetta.MDC_PRESS_BLD_ART_ABP.VALUE, "", 0,
+        	currentPressureSQI.accuracy = jitterAccuracyMap.get(PRESSURE2).floatValue();
+        	currentPressureSQI.frequency = FREQUENCY_HZ;
+            numericSample(SimMultiparameter.this.systolic, systolic, currentPressureSQI, sampleTime);
+            numericSample(SimMultiparameter.this.diastolic, diastolic, currentPressureSQI, sampleTime);
+            currentArrayPressureSQI.accuracy = jitterAccuracyMap.get(PRESSURESA).floatValue();
+            currentArrayPressureSQI.frequency = frequency;
+            pressure = sampleArraySample(pressure, waveValues, currentArrayPressureSQI, rosetta.MDC_PRESS_BLD_ART_ABP.VALUE, "", 0,
                     rosetta.MDC_DIM_DIMLESS.VALUE, frequency, sampleTime);
         }
         
@@ -79,12 +148,16 @@ public class SimMultiparameter extends AbstractSimulatedConnectedDevice {
 
         @Override
         protected void receiveCO2(DeviceClock.Reading sampleTime, Number[] co2Values, int respiratoryRateValue, int etCO2Value, int frequency) {
-
-            co2 = sampleArraySample(co2, co2Values, rosetta.MDC_AWAY_CO2.VALUE, "", 0, 
+        	currentArrayCO2SQI.accuracy = jitterAccuracyMap.get(CO2SA).floatValue();
+        	currentArrayCO2SQI.frequency = frequency;
+            co2 = sampleArraySample(co2, co2Values, currentArrayCO2SQI, rosetta.MDC_AWAY_CO2.VALUE, "", 0, 
                     rosetta.MDC_DIM_MMHG.VALUE, frequency, sampleTime);
-            numericSample(respiratoryRate, respiratoryRateValue, sampleTime);
-            numericSample(etCO2, etCO2Value, sampleTime);
-
+            currentRespRateSQI.accuracy = jitterAccuracyMap.get(RESP_RATE).floatValue();
+            currentCO2SQI.accuracy = jitterAccuracyMap.get(CO22).floatValue();
+            currentRespRateSQI.frequency = FREQUENCY_HZ;
+            currentCO2SQI.frequency = FREQUENCY_HZ;
+            numericSample(respiratoryRate, respiratoryRateValue, currentRespRateSQI, sampleTime);
+            numericSample(etCO2, etCO2Value, currentCO2SQI, sampleTime);
         }
     }
     
@@ -100,15 +173,20 @@ public class SimMultiparameter extends AbstractSimulatedConnectedDevice {
 
             try {
                 // TODO get better numbers in actual millivolts
-                i = sampleArraySample(i, iValues, ice.MDC_ECG_LEAD_I.VALUE, "", 0, 
+            	currentECGSQI.accuracy = jitterAccuracyMap.get(ECG).floatValue();
+            	currentECGSQI.frequency = frequency;
+                i = sampleArraySample(i, iValues, currentECGSQI, ice.MDC_ECG_LEAD_I.VALUE, "", 0, 
                         rosetta.MDC_DIM_DIMLESS.VALUE, frequency, sampleTime);
-                ii = sampleArraySample(ii, iiValues, ice.MDC_ECG_LEAD_II.VALUE, "", 0, 
+                ii = sampleArraySample(ii, iiValues, currentECGSQI, ice.MDC_ECG_LEAD_II.VALUE, "", 0, 
                         rosetta.MDC_DIM_DIMLESS.VALUE, frequency, sampleTime);
-                iii = sampleArraySample(iii, iiiValues, ice.MDC_ECG_LEAD_III.VALUE, "", 0, 
+                iii = sampleArraySample(iii, iiiValues, currentECGSQI, ice.MDC_ECG_LEAD_III.VALUE, "", 0, 
                         rosetta.MDC_DIM_DIMLESS.VALUE, frequency, sampleTime);
-
-                numericSample(heartRate, (float) heartRateValue, sampleTime);
-                numericSample(ecgRespiratoryRate, (float) respiratoryRateValue, sampleTime);
+                currentHeartRateSQI.accuracy = jitterAccuracyMap.get(HEART_RATE).floatValue();
+                currentHeartRateSQI.frequency = FREQUENCY_HZ;
+                numericSample(heartRate, (float) heartRateValue, currentHeartRateSQI, sampleTime);
+                currentECGRespRateSQI.accuracy = jitterAccuracyMap.get(ECG_RESP_RATE).floatValue();
+                currentECGRespRateSQI.frequency = FREQUENCY_HZ;
+                numericSample(ecgRespiratoryRate, (float) respiratoryRateValue, currentECGRespRateSQI, sampleTime);
             } catch (Throwable t) {
                 log.error("Error simulating ECG data", t);
             }
